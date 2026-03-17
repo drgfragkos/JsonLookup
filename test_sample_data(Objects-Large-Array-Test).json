@@ -1,0 +1,85 @@
+﻿{
+  "employees": [
+    {
+      "id": 1,
+      "name": "Alice Big",
+      "department": "Engineering",
+      "role": "Senior Developer",
+      "email": "alice.big@example.com",
+      "skills": [
+        "Python",
+        "Go",
+        "Kubernetes"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Bob Martinez",
+      "department": "Engineering",
+      "role": "DevOps Engineer",
+      "email": "bob.martinez@example.com",
+      "skills": [
+        "Terraform",
+        "AWS",
+        "Docker"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Carol Grey",
+      "department": "Design",
+      "role": "UX Lead",
+      "email": "carol.Grey@example.com",
+      "skills": [
+        "Figma",
+        "User Research",
+        "Prototyping"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Platform Migration",
+      "status": "active",
+      "lead": "Alice Johnson",
+      "description": "Migrate legacy services to Kubernetes-based infrastructure"
+    },
+    {
+      "name": "Design System v2",
+      "status": "planning",
+      "lead": "Carol Chen",
+      "description": "Rebuild component library with accessibility-first approach"
+    },
+    {
+      "name": "CI/CD Overhaul",
+      "status": "completed",
+      "lead": "Bob Martinez",
+      "description": "Replace Jenkins pipelines with GitHub Actions"
+    }
+  ],
+  "servers": [
+    {
+      "hostname": "prod-api-01",
+      "ip": "10.0.1.10",
+      "role": "API Gateway",
+      "os": "Ubuntu 22.04",
+      "notes": "Primary ingress point"
+    },
+    {
+      "hostname": "prod-db-01",
+      "ip": "10.0.2.10",
+      "role": "PostgreSQL Primary",
+      "os": "Debian 12",
+      "notes": "32GB RAM, 1TB NVMe"
+    },
+    {
+      "hostname": "prod-cache-01",
+      "ip": "10.0.3.10",
+      "role": "Redis Cluster",
+      "os": "Alpine 3.18",
+      "notes": "Session store and rate limiting"
+    }
+  ],
+  "version": "2.1.0",
+  "lastUpdated": "2026-03-15"
+}
