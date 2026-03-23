@@ -23,6 +23,9 @@ The tool auto-discovers the structure of any JSON file, presents its sections as
 # Open a specific JSON file
 ./JsonLookup.ps1 -Path ./data.json
 
+# Open a JSONL (JSON Lines) log file — auto-detected and converted
+./JsonLookup.ps1 -Path ./debug.jsonl
+
 # Auto-load default.json from the working directory, or open a file picker
 ./JsonLookup.ps1
 ```
@@ -84,6 +87,24 @@ Each top-level key becomes a checkbox section. Arrays of objects are searchable 
 ```
 
 The entire array is presented as a single `(all entries)` section. Saving preserves the root array format — no wrapping is added to the file.
+
+### JSONL (JSON Lines) files
+
+```
+{"timestamp":"2026-03-21T19:28:28.826Z","level":"INFO","message":"Agent starting"}
+{"timestamp":"2026-03-21T19:28:28.827Z","level":"INFO","message":"Config loaded"}
+{"timestamp":"2026-03-21T19:28:29.001Z","event":"clipboard_change","content_preview":"Hello"}
+```
+
+JSONL files (one JSON object per line) are auto-detected when opened — both `.jsonl` and `.json` files with line-delimited content are supported. On detection, a dialog prompts you to choose which field to use as the display label (e.g., `timestamp`, `event`, `message`). The tool then generates a standard `.json` file alongside the original and opens it. Entries appear in the results list as:
+
+```
+[1] 2026-03-21T19:28:28.826Z
+[2] 2026-03-21T19:28:28.827Z
+[3] 2026-03-21T19:28:29.001Z
+```
+
+where the number is the original line number in the JSONL file and the value comes from your chosen field. The generated `.json` preserves all original fields plus two metadata fields: `_jsonl_line` (source line number) and `_jsonl_label` (the formatted display string).
 
 ---
 
@@ -263,15 +284,17 @@ A magnifying glass icon with `{}` inside is generated programmatically at startu
 
 1. **Self-relaunch**: On first launch, the script spawns a new `pwsh` process with `-WindowStyle Hidden` and the `-_Hidden` flag, then exits. The second process starts already hidden — no console flash.
 
-2. **Section discovery**: The JSON root is inspected. Objects have their keys sorted and categorized: arrays become searchable sections, nested objects become single-entry sections, scalars are grouped. Root arrays become a single `_entries` section.
+2. **JSONL detection**: Before parsing, the tool checks whether the file is JSONL (line-delimited JSON). It first attempts a full JSON parse — if that fails, it samples up to 10 non-empty lines and verifies each is a valid JSON object. If confirmed, the converter module takes over: it parses all lines, collects every unique top-level key, presents a field-selection dialog, and writes a standard `.json` array file that the rest of the tool loads normally.
 
-3. **Search**: A debounced timer (180ms) triggers on each keystroke. The search function iterates all entries in checked sections, checking every string value for a case-insensitive substring match.
+3. **Section discovery**: The JSON root is inspected. Objects have their keys sorted and categorized: arrays become searchable sections, nested objects become single-entry sections, scalars are grouped. Root arrays become a single `_entries` section.
 
-4. **Editing**: The detail `RichTextBox` becomes editable on selection. On save, the text is parsed back to a hashtable, the in-memory section is updated, the full JSON data structure is rebuilt from all sections, and the file is written to disk.
+4. **Search**: A debounced timer (180ms) triggers on each keystroke. The search function iterates all entries in checked sections, checking every string value for a case-insensitive substring match.
 
-5. **Clone/Delete**: Sections are stored as `ArrayList` objects for mutability. Clone performs a deep copy via JSON round-trip. Delete uses `RemoveAt`. Both trigger ID resequencing (numeric IDs only) and an immediate file save.
+5. **Editing**: The detail `RichTextBox` becomes editable on selection. On save, the text is parsed back to a hashtable, the in-memory section is updated, the full JSON data structure is rebuilt from all sections, and the file is written to disk.
 
-6. **State persistence**: On form close, checkbox state (respecting Select All logic), splitter ratio, and window geometry are collected into a hashtable and written to the `.jlconf` file with the Hidden attribute set.
+6. **Clone/Delete**: Sections are stored as `ArrayList` objects for mutability. Clone performs a deep copy via JSON round-trip. Delete uses `RemoveAt`. Both trigger ID resequencing (numeric IDs only) and an immediate file save.
+
+7. **State persistence**: On form close, checkbox state (respecting Select All logic), splitter ratio, and window geometry are collected into a hashtable and written to the `.jlconf` file with the Hidden attribute set.
 
 ---
 
@@ -282,6 +305,9 @@ No `default.json` was found in the working directory, and no `-Path` was given. 
 
 **Entries don't appear for a root-array JSON file**
 Ensure you are using the latest version. Earlier versions only supported root-object JSON files. Root arrays are now detected and wrapped in a virtual `(all entries)` section.
+
+**JSONL file is not detected**
+The detector requires at least 2 non-empty lines that each parse as a JSON object. If the file first parses successfully as a single JSON document (e.g., a minified array on one line), it is treated as standard JSON. Rename the file to `.jsonl` for clarity, though the detection is content-based, not extension-based.
 
 **Console window flashes briefly on launch**
 The self-relaunch mechanism should prevent this. Ensure your shortcut target does not include `-WindowStyle Hidden` (the script handles it). If a flash still occurs, the `HideConsole()` P/Invoke call provides a fallback.

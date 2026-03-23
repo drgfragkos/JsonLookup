@@ -161,216 +161,10 @@ function Save-ProjectState {
     }
 }
 
-# ══════════════════════════════════════════════════════════════════════════════
-#   JSONL (JSON Lines) CONVERTER MODULE
-#   Detects one-JSON-per-line files, prompts for a display label field,
-#   and generates a standard .json file the tool can browse natively.
-# ══════════════════════════════════════════════════════════════════════════════
-
-function Test-IsJsonl {
-    <# Returns $true if the file appears to be JSONL (one JSON object per line). #>
-    param([string]$FilePath)
-    try {
-        # Quick pre-check: if the file parses as a single JSON value, it's not JSONL
-        $raw = Get-Content -Path $FilePath -Raw -Encoding utf8
-        try {
-            $parsed = $raw | ConvertFrom-Json -Depth 2 -ErrorAction Stop
-            # Successfully parsed as one JSON document — not JSONL
-            return $false
-        } catch {
-            # Could not parse as a single JSON document — check line by line
-        }
-
-        $lines = Get-Content -Path $FilePath -Encoding utf8 | Where-Object { $_.Trim().Length -gt 0 }
-        if ($lines.Count -lt 2) { return $false }
-
-        # Sample up to 10 lines to verify they are each valid JSON objects
-        $sample = $lines | Select-Object -First 10
-        foreach ($line in $sample) {
-            try {
-                $obj = $line | ConvertFrom-Json -Depth 2 -ErrorAction Stop
-                if ($obj -isnot [System.Management.Automation.PSCustomObject] -and
-                    $obj -isnot [System.Collections.IDictionary]) {
-                    return $false  # not a JSON object
-                }
-            } catch {
-                return $false
-            }
-        }
-        return $true
-    } catch {
-        return $false
-    }
-}
-
-function Convert-JsonlToJson {
-    <#
-    .SYNOPSIS
-        Converts a JSONL file to a standard JSON array file.
-        Shows a dialog for the user to choose which field becomes the display label.
-        Returns the path to the generated .json file, or $null if cancelled.
-    #>
-    param(
-        [string]$FilePath,
-        [System.Windows.Forms.Form]$OwnerForm
-    )
-
-    # ── Parse all lines ──────────────────────────────────────────────────────
-    $lines = Get-Content -Path $FilePath -Encoding utf8
-    $entries     = [System.Collections.ArrayList]::new()
-    $allKeys     = [System.Collections.Generic.HashSet[string]]::new()
-    $lineNumber  = 0
-
-    foreach ($line in $lines) {
-        $lineNumber++
-        $trimmed = $line.Trim()
-        if ($trimmed.Length -eq 0) { continue }
-        try {
-            $obj = $trimmed | ConvertFrom-Json -AsHashtable -Depth 100 -ErrorAction Stop
-            $obj['_jsonl_line'] = $lineNumber
-            foreach ($k in $obj.Keys) {
-                if ($k -ne '_jsonl_line') { [void]$allKeys.Add($k) }
-            }
-            [void]$entries.Add($obj)
-        } catch {
-            # Skip malformed lines silently
-        }
-    }
-
-    if ($entries.Count -eq 0) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "No valid JSON objects found in the file.",
-            "JSONL Conversion", [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Warning)
-        return $null
-    }
-
-    # ── Prompt user to pick a label field ─────────────────────────────────────
-    $sortedKeys = $allKeys | Sort-Object
-
-    $dlg = [System.Windows.Forms.Form]::new()
-    $dlg.Text            = "JSONL Import  -  Select display label"
-    $dlg.FormBorderStyle = "FixedDialog"
-    $dlg.StartPosition   = "CenterParent"
-    $dlg.MaximizeBox     = $false
-    $dlg.MinimizeBox     = $false
-    $dlg.Size            = [System.Drawing.Size]::new(420, 230)
-    $dlg.BackColor       = $script:BgDark
-    $dlg.ForeColor       = $script:FgPrimary
-    $dlg.Font            = $script:Font
-
-    # Dark title bar for the dialog too
-    try { [WinHelper]::EnableDarkTitleBar($dlg.Handle) } catch {}
-
-    $lblInfo = [System.Windows.Forms.Label]::new()
-    $lblInfo.Text     = "Detected JSONL file with $($entries.Count) entries.`nChoose a field for the list label:"
-    $lblInfo.Location = [System.Drawing.Point]::new(20, 16)
-    $lblInfo.Size     = [System.Drawing.Size]::new(370, 44)
-    $lblInfo.ForeColor = $script:FgPrimary
-    $dlg.Controls.Add($lblInfo)
-
-    $combo = [System.Windows.Forms.ComboBox]::new()
-    $combo.DropDownStyle = "DropDownList"
-    $combo.Location = [System.Drawing.Point]::new(20, 68)
-    $combo.Size     = [System.Drawing.Size]::new(360, 28)
-    $combo.BackColor = $script:BgInput
-    $combo.ForeColor = $script:FgPrimary
-    $combo.FlatStyle = "Flat"
-    $combo.Font      = $script:Font
-    foreach ($k in $sortedKeys) { [void]$combo.Items.Add($k) }
-    # Pre-select a sensible default
-    $preferredDefaults = @('timestamp','name','event','message','title','id','label','type','level')
-    $defaultIdx = -1
-    foreach ($pref in $preferredDefaults) {
-        $idx = $combo.Items.IndexOf($pref)
-        if ($idx -ge 0) { $defaultIdx = $idx; break }
-    }
-    if ($defaultIdx -ge 0) { $combo.SelectedIndex = $defaultIdx }
-    elseif ($combo.Items.Count -gt 0) { $combo.SelectedIndex = 0 }
-    $dlg.Controls.Add($combo)
-
-    # ── Preview label ─────────────────────────────────────────────────────────
-    $lblPreview = [System.Windows.Forms.Label]::new()
-    $lblPreview.Location  = [System.Drawing.Point]::new(20, 106)
-    $lblPreview.Size      = [System.Drawing.Size]::new(370, 22)
-    $lblPreview.ForeColor = $script:FgSecondary
-    $lblPreview.Font      = [System.Drawing.Font]::new($script:FontFamily, 9)
-
-    $updatePreview = {
-        $selKey = $combo.SelectedItem
-        if ($selKey -and $entries.Count -gt 0) {
-            $sampleVal = $entries[0][$selKey]
-            $line      = $entries[0]['_jsonl_line']
-            $lblPreview.Text = "Preview:  [$line] $sampleVal"
-        }
-    }
-    $combo.Add_SelectedIndexChanged($updatePreview)
-    & $updatePreview
-    $dlg.Controls.Add($lblPreview)
-
-    # ── OK / Cancel buttons ───────────────────────────────────────────────────
-    $btnOK = [System.Windows.Forms.Button]::new()
-    $btnOK.Text      = "Convert && Open"
-    $btnOK.Size      = [System.Drawing.Size]::new(120, 32)
-    $btnOK.Location  = [System.Drawing.Point]::new(140, 145)
-    $btnOK.FlatStyle = "Flat"
-    $btnOK.BackColor = $script:BgInput
-    $btnOK.ForeColor = $script:FgPrimary
-    $btnOK.FlatAppearance.BorderColor = $script:Accent
-    $btnOK.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $dlg.Controls.Add($btnOK)
-    $dlg.AcceptButton = $btnOK
-
-    $btnCancel = [System.Windows.Forms.Button]::new()
-    $btnCancel.Text      = "Cancel"
-    $btnCancel.Size      = [System.Drawing.Size]::new(80, 32)
-    $btnCancel.Location  = [System.Drawing.Point]::new(270, 145)
-    $btnCancel.FlatStyle = "Flat"
-    $btnCancel.BackColor = $script:BgInput
-    $btnCancel.ForeColor = $script:FgSecondary
-    $btnCancel.FlatAppearance.BorderColor = $script:Border
-    $btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $dlg.Controls.Add($btnCancel)
-    $dlg.CancelButton = $btnCancel
-
-    $result = $dlg.ShowDialog($OwnerForm)
-    $selectedKey = $combo.SelectedItem
-    $dlg.Dispose()
-
-    if ($result -ne [System.Windows.Forms.DialogResult]::OK -or -not $selectedKey) {
-        return $null
-    }
-
-    # ── Build labels and write JSON ──────────────────────────────────────────
-    foreach ($entry in $entries) {
-        $lineNum = $entry['_jsonl_line']
-        $val     = if ($entry.ContainsKey($selectedKey)) { "$($entry[$selectedKey])" } else { "" }
-        if ($val.Length -gt 100) { $val = $val.Substring(0, 97) + "..." }
-        $entry['_jsonl_label'] = "[$lineNum] $val"
-    }
-
-    # Output path: same directory, same base name but .json extension
-    # If a .json with that name already exists and is NOT a generated JSONL conversion, add _converted suffix
-    $dir      = [System.IO.Path]::GetDirectoryName($FilePath)
-    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($FilePath)
-    $outPath  = [System.IO.Path]::Combine($dir, "${baseName}.json")
-
-    # If source is already .json (content-detected as JSONL), write to _converted.json
-    if ($outPath -eq [System.IO.Path]::GetFullPath($FilePath)) {
-        $outPath = [System.IO.Path]::Combine($dir, "${baseName}_converted.json")
-    }
-
-    $jsonArray = [System.Collections.ArrayList]@($entries)
-    $jsonText  = $jsonArray | ConvertTo-Json -Depth 100 -EnumsAsStrings
-    [System.IO.File]::WriteAllText($outPath, $jsonText, [System.Text.Encoding]::UTF8)
-
-    return $outPath
-}
-
 function Get-EntryLabel {
     param($Entry, $Section, $Index)
     if ($Entry -is [System.Collections.IDictionary]) {
-        foreach ($f in @('_jsonl_label','name','title','id','label','key','description','Name','Title','Id','hostname','host','subject')) {
+        foreach ($f in @('name','title','id','label','key','description','Name','Title','Id','hostname','host','subject')) {
             if ($Entry.Contains($f) -and $null -ne $Entry[$f]) {
                 $v = "$($Entry[$f])"
                 if ($v.Length -gt 120) { $v = $v.Substring(0,117) + "..." }
@@ -1405,7 +1199,7 @@ $btnRevert.Add_Click({
 function Show-OpenDialog {
     $ofd = [System.Windows.Forms.OpenFileDialog]::new()
     $ofd.InitialDirectory = if ($script:JsonPath) { [System.IO.Path]::GetDirectoryName($script:JsonPath) } else { (Get-Location).Path }
-    $ofd.Filter = "JSON files (*.json;*.jsonl)|*.json;*.jsonl|All files (*.*)|*.*"
+    $ofd.Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*"
     $ofd.Title  = "Select a JSON file"
     if ($ofd.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
         Open-JsonFile -FilePath $ofd.FileName
@@ -1484,13 +1278,6 @@ function Open-JsonFile {
         [System.Windows.Forms.MessageBox]::Show("File not found: $($script:JsonPath)", "Error",
             [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
         return
-    }
-
-    # ── JSONL detection: convert to standard JSON if needed ───────────────────
-    if (Test-IsJsonl $script:JsonPath) {
-        $convertedPath = Convert-JsonlToJson -FilePath $script:JsonPath -OwnerForm $form
-        if (-not $convertedPath) { return }  # user cancelled
-        $script:JsonPath = [System.IO.Path]::GetFullPath($convertedPath)
     }
 
     $jsonDir      = [System.IO.Path]::GetDirectoryName($script:JsonPath)
@@ -1705,7 +1492,7 @@ $startTimer.Add_Tick({
     # File picker
     $ofd = [System.Windows.Forms.OpenFileDialog]::new()
     $ofd.InitialDirectory = (Get-Location).Path
-    $ofd.Filter = "JSON files (*.json;*.jsonl)|*.json;*.jsonl|All files (*.*)|*.*"
+    $ofd.Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*"
     $ofd.Title  = "Select a JSON file to work with"
     if ($ofd.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
         Open-JsonFile -FilePath $ofd.FileName
